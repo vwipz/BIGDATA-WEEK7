@@ -1,0 +1,194 @@
+---
+title: "Homework Week 7: congressional speech"
+date: "2024-05-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+  library(textir)  # to get the data
+  library(maptpx)  # for the topics function
+  data(congress109)
+```
+
+
+#library(wordcloud)  # For creating word clouds
+#library(gamlr)  # For regression analysis
+
+
+# Question 1
+**[1] Fit K-means to speech text for K in 5,10,15,20,25. Use BIC to choose the K and interpret the selected model.**
+
+```{r}
+  fs <- scale(as.matrix(congress109Counts/rowSums(congress109Counts)))
+  kfit <- lapply(5*(1:5), function(k) kmeans(fs, k)) #K=5
+  
+  kfit <- lapply(5*(1:5), function(k) kmeans(fs, k))
+
+  source("kIC.R") # Loads function to calculate BIC and AIC
+  
+  kaicc <- sapply(kfit, kIC)
+  kbic <- sapply(kfit, kIC, "B")
+  
+  #view values for BIC and AIC to determine optimal K
+  print(kaicc)
+  print(kbic)
+  
+  par(mfrow=c(1,2))
+  plot(5*(1:5), kaicc, xlab="K", ylab="IC",
+  	bty="n", type="l", lwd=2,
+  	main = "AIC")
+  abline(v=which.min(kaicc)*5)
+  plot(5*(1:5), kbic, xlab="K", ylab="IC",
+  	bty="n", type="l", lwd=2, col=4,
+  	main = "BIC")
+  abline(v=which.min(kbic)*5,col=4)
+  
+  kmfs <- kfit[[1]] #K=5 Using optimal K based on BIC
+#  kmfs <- kfit[[2]] #K=10 
+#  kmfs <- kfit[[3]] #K=15
+#  kmfs <- kfit[[4]] #K=20
+#  kmfs <- kfit[[5]] #K=25
+
+  print(apply(kmfs$centers,1,function(c) colnames(fs)[order(-c)[1:10]]))
+  kmfs$size
+# kmfs$centers #provides centroid locations of clusters to find top 10 defining terms 
+
+```
+We used BIC to determine the optimal number of clusters, The BIC values were lowest for K = 5 and showed a sharp increase for higher values. This indicates that five clusters optimize the balance between model complexity and fit, suggesting that additional clusters would lead to overfitting. Thus, K = 5 was selected, implying that the congressional speeches can be effectively categorized into five distinct thematic groups without unnecessary complexity.
+
+Clusters: 
+1: economic policy, 455 speeches
+2: foreign policy and military, 5 speeches
+3: judicial and legal systems, 55 speeches
+4: international relations and energy, 11 speeches
+5: natural resources and energy, 3 speeches
+
+
+# Question 2
+**[2] Fit a topic model for the speech counts. Use Bayes factors to choose the number of topics, and interpret your chosen model.**
+
+```{r}
+  library(wordcloud)
+  
+  # Convert to slam matrix
+  x <- as.simple_triplet_matrix(congress109Counts)
+#  tpcs <- topics(x,K=2:25) # it chooses 13 topics
+  
+  # Fit topic models for a range of topics from K=2 to K=25
+#  tpcs_list <- lapply(2:25, function(k) topics(x, K=k))
+  tpcs_list <- lapply(2:5, function(k) topics(x, K=k)) #debug
+  print("topics list")
+  print(tpcs_list)
+  
+  # specify the number of words(vocab_size) and number of documents (num_docs)
+  vocab_size <- ncol(congress109Counts)
+  num_docs <- nrow(congress109Counts)
+  
+    
+  # Adapt the kIC function from kIC.R for topic modeling to compute BIC
+kIC_topic <- function(fit, vocab_size, num_docs, rule=c("A","B")) {
+  print("loglik value")  # Print the logLik value
+  print(fit$logLik)  # Print the logLik value
+  n <- num_docs  # Total number of documents     
+  K <- fit$K  # Number of topics, assuming fit$K exists     
+  df <- K * vocab_size + num_docs * K  # Example parameter count     
+  logLik <- fit$logLik  # Assuming fit object has a logLik property     
+  rule = match.arg(rule)       
+  if (rule == "A")         
+    return(-2 * logLik + 2 * df)  # AIC calculation     
+  else         
+    return(-2 * logLik + log(n) * df)  # BIC calculation  
+}
+  
+  print(tpcs_list[[1]])
+  print(tpcs_list[[2]])
+
+  print(dim(x))
+  
+  # Calculate BIC for each model
+  bic_values <- sapply(tpcs_list, function(model) kIC_topic(model, vocab_size, num_docs, "B"))
+  print("bic values")
+  print(bic_values)
+  
+  # Determine the optimal number of topics using BIC
+  optimal_k <- which.min(bic_values)
+  print(optimal_k)
+  optimal_model <- tpcs_list[[optimal_k]]
+  
+  # Output the optimal number of topics and the BIC values
+  print(paste("Optimal number of topics based on BIC:", optimal_k))
+  print("BIC values for each K:")
+  print(bic_values)
+  
+  # Interpretation: Print top terms for the optimal model's topics
+  print("Top terms in each topic of the optimal model:")
+  print(lapply(1:optimal_model$K, function(i) {
+      terms <- rownames(optimal_model$theta)[order(optimal_model$theta[,i], decreasing = TRUE)[1:10]]
+      paste(terms, collapse = ", ")
+  }))
+  
+  # Visualize the first two topics using word clouds
+  if (optimal_model$K >= 2) {
+      par(mfrow = c(1, 2))
+      wordcloud(rownames(optimal_model$theta), freq = optimal_model$theta[,1], min.freq = 0.004, col = "maroon")
+      wordcloud(rownames(optimal_model$theta), freq = optimal_model$theta[,2], min.freq = 0.004, col = "navy")
+  }
+
+```
+
+
+# Question 3
+**[3] Connect the unsupervised clusters to partisanship. 
+  > tabulate party membership by K-means cluster. Are there any non-partisan topics?
+  > t topic regressions for each of party and repshare.
+    Compare to regression onto phrase percentages:
+    x<-100*congress109Counts/rowSums(congress109Counts)
+    
+```{r}
+
+library(gamlr)  # Ensure the library for regression analysis is loaded
+
+# Tabulate party membership by K-means cluster
+party_by_cluster <- tapply(congress109Ideology$party, kmfs$cluster, table)
+print(party_by_cluster)
+# Assessing non-partisan topics by looking at distribution of parties in clusters
+
+# Extracting significant terms from the largest cluster
+largest_cluster_terms <- colnames(fs)[order(-kmfs$centers[which.max(kmfs$size),])[1:10]]
+print(largest_cluster_terms)
+
+# Fit a logistic regression model to relate topics to party affiliation
+gop <- congress109Ideology[,"party"]=="R"  # Binary variable for Republican party
+partyreg <- gamlr(tpcs$omega, gop, family="binomial")
+print(exp(coef(partyreg)*0.1))  # Displaying exponentiated coefficients for interpretability
+
+# Fit a linear regression model to explore the relationship between topics and 'repshare'
+repreg <- gamlr(tpcs$omega, congress109Ideology[,"repshare"])
+print(coef(repreg)*0.1)  # Coefficients represent change in 'repshare' per 0.1 rise in topic weight
+
+# Comparison of topic-based and phrase percentage-based regression
+x <- 100*congress109Counts/rowSums(congress109Counts)  # Calculate phrase percentages
+regtopics_cv <- cv.gamlr(tpcs$omega, gop, family="binomial")
+regwords_cv <- cv.gamlr(x, gop, family="binomial")
+
+# Visualizing comparative performance of topic-based and phrase-based regression
+par(mfrow=c(1,2))
+plot(regtopics_cv, main="Topic Regression Performance")
+plot(regwords_cv, main="Phrase Count Regression Performance")
+
+# Displaying maximum out-of-sample R^2 to assess model performance
+max_oos_r2_topics <- max(1 - regtopics_cv$cvm / regtopics_cv$cvm[1])
+max_oos_r2_phrases <- max(1 - regwords_cv$cvm / regwords_cv$cvm[1])
+print(paste("Max OOS R^2 for topics: ", max_oos_r2_topics))
+print(paste("Max OOS R^2 for phrases: ", max_oos_r2_phrases))
+```
