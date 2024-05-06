@@ -87,64 +87,118 @@ Clusters:
   # Fit topic models for a range of topics from K=2 to K=25
 #  tpcs_list <- lapply(2:25, function(k) topics(x, K=k))
   tpcs_list <- lapply(2:5, function(k) topics(x, K=k)) #debug
-  print("topics list")
-  print(tpcs_list)
   
   # specify the number of words(vocab_size) and number of documents (num_docs)
   vocab_size <- ncol(congress109Counts)
   num_docs <- nrow(congress109Counts)
   
+  
     
   # Adapt the kIC function from kIC.R for topic modeling to compute BIC
-kIC_topic <- function(fit, vocab_size, num_docs, rule=c("A","B")) {
-  print("loglik value")  # Print the logLik value
-  print(fit$logLik)  # Print the logLik value
-  n <- num_docs  # Total number of documents     
-  K <- fit$K  # Number of topics, assuming fit$K exists     
-  df <- K * vocab_size + num_docs * K  # Example parameter count     
-  logLik <- fit$logLik  # Assuming fit object has a logLik property     
-  rule = match.arg(rule)       
-  if (rule == "A")         
-    return(-2 * logLik + 2 * df)  # AIC calculation     
-  else         
-    return(-2 * logLik + log(n) * df)  # BIC calculation  
-}
-  
-  print(tpcs_list[[1]])
-  print(tpcs_list[[2]])
 
-  print(dim(x))
+    kIC_topic <- function(fit, vocab_size, num_docs, rule=c("A","B")) {
+    K <- fit$K  # Number of topics
+    theta <- fit$theta  # Topic-word distributions
+    z <- fit$z  # Topic assignments for each word in each document
+    
+    # Calculate log-likelihood
+    logLik <- sum(log(theta[z]))
+    
+    df <- K * vocab_size + num_docs * K  # Example parameter count     
+    n <- num_docs  # Total number of documents     
+    rule = match.arg(rule)       
+    if (rule == "A")         
+      return(-2 * logLik + 2 * df)  # AIC calculation     
+    else         
+      return(-2 * logLik + log(n) * df)  # BIC calculation  
+  }
   
   # Calculate BIC for each model
   bic_values <- sapply(tpcs_list, function(model) kIC_topic(model, vocab_size, num_docs, "B"))
-  print("bic values")
+  bic_values <- sapply(tpcs_list, function(model) {
+    n <- nrow(x)  # number of documents
+    k <- length(model$terms) * model$K  # number of parameters: terms per topic * number of topics
+    logLik <- model$logLik
+    return(-2 * logLik + log(n) * k)
+  })
+  
+bic_values <- sapply(tpcs_list, function(model) {
+  n <- nrow(x)  # Number of documents
+  k <- length(model$terms) * model$K  # Assuming model$terms gives the number of terms per topic
+  logLik <- model$logLik  # Ensure this is correctly extracted
+  BIC <- -2 * logLik + log(n) * k
+  return(BIC)
+})
+
+  # Check data type of bic_values
+  print(typeof(bic_values))
+  
+  # Assuming bic_values is numeric and calculations are correct
+  bic_base <- bic_values[1]
+  print(bic_base)
+  print(typeof(bic_base))
   print(bic_values)
+  bayes_factors <- exp((bic_base - bic_values) / 2)
+  
+  # Print Bayes Factors
+  print(bayes_factors)
+
+  # print("bic values")
+  # print(bic_values)
   
   # Determine the optimal number of topics using BIC
   optimal_k <- which.min(bic_values)
   print(optimal_k)
   optimal_model <- tpcs_list[[optimal_k]]
+  # 
+  # # Output the optimal number of topics and the BIC values
+  # print(paste("Optimal number of topics based on BIC:", optimal_k))
+  # print("BIC values for each K:")
+  # print(bic_values)
   
-  # Output the optimal number of topics and the BIC values
-  print(paste("Optimal number of topics based on BIC:", optimal_k))
-  print("BIC values for each K:")
-  print(bic_values)
+  # # Interpretation: Print top terms for the optimal model's topics
+  # print("Top terms in each topic of the optimal model:")
+  # print(lapply(1:optimal_model$K, function(i) {
+  #     terms <- rownames(optimal_model$theta)[order(optimal_model$theta[,i], decreasing = TRUE)[1:10]]
+  #     paste(terms, collapse = ", ")
+  # }))
   
-  # Interpretation: Print top terms for the optimal model's topics
-  print("Top terms in each topic of the optimal model:")
-  print(lapply(1:optimal_model$K, function(i) {
-      terms <- rownames(optimal_model$theta)[order(optimal_model$theta[,i], decreasing = TRUE)[1:10]]
-      paste(terms, collapse = ", ")
-  }))
+  # Get the top terms for each topic
+top_terms <- apply(optimal_model$theta, 2, function(x) {
+  top_indices <- order(x, decreasing = TRUE)[1:10]  # Change 10 to the desired number of top terms
+  paste(rownames(optimal_model$theta)[top_indices], collapse = ", ")
+})
+
+# Print the top terms for each topic
+for (i in 1:optimal_model$K) {
+  cat(paste("Topic", i, "top terms:", top_terms[i], "\n"))
+}
   
   # Visualize the first two topics using word clouds
   if (optimal_model$K >= 2) {
-      par(mfrow = c(1, 2))
-      wordcloud(rownames(optimal_model$theta), freq = optimal_model$theta[,1], min.freq = 0.004, col = "maroon")
-      wordcloud(rownames(optimal_model$theta), freq = optimal_model$theta[,2], min.freq = 0.004, col = "navy")
+    par(mfrow = c(1, 2), mar = c(0, 0, 2, 0))  # Adjust the plot layout
+    
+    # Word cloud for Topic 1
+    wordcloud(rownames(optimal_model$theta), freq = optimal_model$theta[,1], 
+              scale = c(5, 0.5), min.freq = 0.001, max.words = 100, 
+              random.order = FALSE, rot.per = 0.3, colors = "maroon")
+    title(main = "Topic 1", font.main = 1)
+    
+    # Word cloud for Topic 2  
+    wordcloud(rownames(optimal_model$theta), freq = optimal_model$theta[,2],
+              scale = c(5, 0.5), min.freq = 0.001, max.words = 100,
+              random.order = FALSE, rot.per = 0.3, colors = "navy")
+    title(main = "Topic 2", font.main = 1)
   }
+  
+  
 
 ```
+[[PLACEHOLDER: recalc BF]]
+
+Topic 1: This topic seems to center around economic and trade issues, with terms like "stem.cel", "trade.agreement", "natural.ga", and "fre.trade". The presence of terms such as "american.people" and "strong.support" might suggest a focus on policies or issues that have significant public or political support, particularly those impacting the economy and resource management.
+
+Topic 2: This topic is clearly oriented towards social issues and events with significant societal impact, highlighted by terms like "hurricane.katrina", "civil.right", "african.american", and "minimum.wage". It suggests a focus on civil rights, disaster response, and economic equality, possibly reflecting discussions around social justice and emergency management in Congress.
 
 
 # Question 3
@@ -192,3 +246,10 @@ max_oos_r2_phrases <- max(1 - regwords_cv$cvm / regwords_cv$cvm[1])
 print(paste("Max OOS R^2 for topics: ", max_oos_r2_topics))
 print(paste("Max OOS R^2 for phrases: ", max_oos_r2_phrases))
 ```
+
+Party Membership by Cluster: The largest cluster terms such as "death.tax" and "illegal.immigration" suggest a conservative bias, indicating these clusters may be predominantly associated with Republican party ideologies.
+
+Partisanship Association (Logistic Regression): Coefficients transformed into odds ratios show significant associations with the Republican party, especially for topics highlighting key conservative issues. For instance, topics related to "illegal immigration" and "tax" show strong Republican ties.
+Representative Share Influence (Linear Regression): Positive coefficients indicate topics with increased emphasis in speeches associated with higher representative shares, suggesting these topics are of greater legislative interest.
+
+Topic vs. Phrase-Based Regression: Topic-based regression outperforms phrase-based regression, with a higher out-of-sample R^2 (approximately 0.526 for topics vs. 0.329 for phrases). This indicates that topic models capture more relevant variations linked to partisanship.
